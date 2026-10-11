@@ -1,0 +1,7 @@
+# Données personnelles utilisées pour les tests
+photo_appareil/
+photo_pc/
+
+# Fichiers Python temporaires
+__pycache__/
+*.pyc
