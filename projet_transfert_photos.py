@@ -117,7 +117,12 @@ def affichage(nouvelles):
 # COPIE
 # =========================
 
-def ajouter_nouvelles(destination, nouvelles):
+def ajouter_nouvelles(
+    destination,
+    nouvelles,
+    suivre_rangement_source=False,
+    racine_source=None
+):
     n = 0
     d = 0
     erreur_liste = set()
@@ -127,9 +132,21 @@ def ajouter_nouvelles(destination, nouvelles):
             n += 1
 
             try:
-                new_desti = trouver_dossier_chrono(
-                    photos, destination
-                )
+                if suivre_rangement_source:
+                    if racine_source is None:
+                        raise ValueError(
+                            "La racine de la source n'est pas définie."
+                        )
+
+                    chemin_relatif = photos.relative_to(racine_source)
+
+                    new_desti = destination / chemin_relatif.parent
+                    new_desti.mkdir(parents=True, exist_ok=True)
+
+                else:
+                    new_desti = trouver_dossier_chrono(
+                        photos, destination
+                    )
 
                 nom_final_chemin = trouver_nom_disponible(
                     photos, destination
@@ -159,15 +176,15 @@ def ajouter_nouvelles(destination, nouvelles):
 
             except Exception as e:
                 print("Erreur :", e)
-                print("Probleme dans la copie du média", n)
+                print("Problème dans la copie du média", n)
                 d += 1
                 erreur_liste.add(photos.name)
 
         print(
             n - d,
-            "ont ete ajoutees a la destination et",
+            "ont été ajoutés à la destination et",
             d,
-            "probleme(s) lors des copies"
+            "problème(s) lors des copies"
         )
 
     except Exception as e:
@@ -183,7 +200,13 @@ def ajouter_nouvelles(destination, nouvelles):
 # TRANSFERT
 # =========================
 
-def transferer(source, destination, extensions):
+def transferer(
+    source,
+    destination,
+    extensions,
+    suivre_rangement_source=False,
+    racine_source=None
+):
     valide, destination = verifier_dossier(source, destination)
 
     if valide:
@@ -192,7 +215,10 @@ def transferer(source, destination, extensions):
         )
 
         erreur_ajout, reussite_ajout, liste_erreur_ajout = ajouter_nouvelles(
-            destination, nouvelles
+            destination,
+            nouvelles,
+            suivre_rangement_source=suivre_rangement_source,
+            racine_source=racine_source
         )
 
         return (
@@ -610,6 +636,28 @@ def trouver_sources(stockages, extensions):
 
     return sources
 
+
+def filtrer_sources(sources):
+    sources = sorted(
+        set(Path(source) for source in sources),
+        key=lambda chemin: len(chemin.parts)
+    )
+
+    sources_filtrees = []
+
+    for source in sources:
+        # Vérifier si un parent est déjà retenu
+        parent_deja_present = any(
+            source.is_relative_to(parent)
+            for parent in sources_filtrees
+        )
+
+        if not parent_deja_present:
+            sources_filtrees.append(source)
+
+    return sources_filtrees
+
+
 # =========================
 # MAIN
 # =========================
@@ -618,22 +666,49 @@ def main():
 
     print("===== TRANSFERT DE MÉDIAS =====")
 
-    # Détection des lecteurs
-    stockages = detecter_sources()
+    # Choix de la nature de la source
+    print("\nNature de la source :")
+    print("1 - Tous les disques externes détectés")
+    print("2 - Un dossier précis")
 
-    if not stockages:
-        print("Aucun stockage détecté.")
-        return
+    choix_source = input("Choix (1 ou 2) : ").strip()
 
-    print("\nStockages détectés :")
-    for stockage in stockages:
-        print("-", stockage)
+    while choix_source not in {"1", "2"}:
+        print("Réponse invalide.")
+        choix_source = input("Choix (1 ou 2) : ").strip()
+
+    if choix_source == "1":
+        stockages = detecter_sources()
+
+        if not stockages:
+            print("Aucun stockage détecté.")
+            return
+
+        print("\nStockages détectés :")
+        for stockage in stockages:
+            print("-", stockage)
+
+    else:
+        chemin_source = input(
+            "\nChemin du dossier source : "
+        ).strip().strip('"')
+
+        dossier_source = Path(chemin_source)
+
+        if not dossier_source.exists() or not dossier_source.is_dir():
+            print("Le dossier indiqué n'existe pas ou n'est pas valide.")
+            return
+
+        stockages = [dossier_source]
+
+        print("\nDossier source sélectionné :", dossier_source)
 
     # Choix du type de média pour tout le transfert
     extensions = choisir_media()
 
     # Recherche de tous les dossiers contenant des médias
     sources = trouver_sources(stockages, extensions)
+    sources = filtrer_sources(sources)
 
     if not sources:
         print("Aucune source contenant des médias n'a été trouvée.")
@@ -643,24 +718,43 @@ def main():
     for source in sources:
         print("-", source)
 
-    destination = Path(r"C:\photos_nael")
+    destination = Path(r"D:\Photo_Naël")
 
-    # Choix du rangement de la destination UNE SEULE FOIS
+    # Choix du rangement préalable de la destination
     rangement = input(
-        "\nRangement des médias de la destination ?\n"
-        "Réponse (oui ou non): "
-    ).lower()
+        "\nFaut-il réorganiser les médias déjà présents "
+        "dans la destination ?\n"
+        "Réponse (oui ou non) : "
+    ).strip().lower()
 
     while rangement not in {"oui", "non"}:
         print("Réponse invalide, réponds par oui ou non.")
         rangement = input(
-            "Rangement des médias de la destination ?\n"
-            "Réponse (oui ou non): "
-        ).lower()
+            "Faut-il réorganiser les médias déjà présents "
+            "dans la destination ?\n"
+            "Réponse (oui ou non) : "
+        ).strip().lower()
 
-    # Rangement préalable de la destination
     if rangement == "oui":
         parcourir_media_desti(destination, extensions)
+
+    # Choix du rangement des nouveaux médias
+    choix_rangement = input(
+        "\nComment ranger les nouveaux médias ?\n"
+        "oui : recalculer leur date et les classer chronologiquement\n"
+        "non : conserver l'arborescence de la source\n"
+        "Réponse (oui ou non) : "
+    ).strip().lower()
+
+    while choix_rangement not in {"oui", "non"}:
+        print("Réponse invalide, réponds par oui ou non.")
+        choix_rangement = input(
+            "oui : recalculer leur date\n"
+            "non : conserver l'arborescence de la source\n"
+            "Réponse (oui ou non) : "
+        ).strip().lower()
+
+    suivre_rangement_source = choix_rangement == "non"
 
     # Compteurs globaux
     total_detection = 0
@@ -672,9 +766,22 @@ def main():
     # Transfert de chaque source
     for source in sources:
 
-        print(
-            f"\n===== TRANSFERT DEPUIS {source} ====="
-        )
+        # Retrouver le stockage racine auquel appartient cette source
+        racines_valides = [
+            Path(stockage)
+            for stockage in stockages
+            if Path(source).is_relative_to(Path(stockage))
+        ]
+
+        if racines_valides:
+            racine_source = max(
+                racines_valides,
+                key=lambda chemin: len(chemin.parts)
+            )
+        else:
+            racine_source = Path(source)
+
+        print(f"\n===== TRANSFERT DEPUIS {source} =====")
 
         (
             reussite_detec,
@@ -685,7 +792,9 @@ def main():
         ) = transferer(
             source,
             destination,
-            extensions
+            extensions,
+            suivre_rangement_source=suivre_rangement_source,
+            racine_source=racine_source
         )
 
         # Addition au bilan global
@@ -706,9 +815,10 @@ def main():
     print("\n===== FIN DU PROGRAMME =====")
 
 
-#if __name__ == "__main__":
- #   main()
- 
+if __name__ == "__main__":
+    main()
+
+#%%
 dossier_iphone = Path(r"Apple iPhone\Internal Storage\200801_a")
 
 print("Dossier accessible :", dossier_iphone.exists())
@@ -774,3 +884,4 @@ if fichiers:
             print("Erreur de lecture :", e)
 else:
     print("Aucun fichier détecté après 30 secondes.")
+#%%
