@@ -5,3 +5,6 @@ photo_pc/
 # Fichiers Python temporaires
 __pycache__/
 *.pyc
+
+# Ancien script monolithique
+/projet_transfert_photos.py
