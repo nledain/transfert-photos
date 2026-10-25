@@ -8,3 +8,7 @@ __pycache__/
 
 # Ancien script monolithique
 /projet_transfert_photos.py
+
+
+# Configuration personnelle, chemins locaux
+/config_local.py

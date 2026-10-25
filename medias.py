@@ -2,6 +2,7 @@ import hashlib
 import shutil
 import subprocess
 from datetime import datetime
+from config import trouver_exiftool
 
 from PIL import Image
 from PIL.ExifTags import TAGS
@@ -132,42 +133,77 @@ def trouver_date_fichier_sans_meta(chemin):
     date=datetime.fromtimestamp(chemin.stat().st_mtime)
     return date
 
+
 def trouver_date_video(chemin):
-    exiftool = shutil.which("exiftool")
+    exiftool = trouver_exiftool()
 
     if exiftool is None:
         print(
             "ExifTool est introuvable. "
             "Utilisation de la date de modification du fichier."
-            )
+        )
         return trouver_date_fichier_sans_meta(chemin)
 
-    sortie = subprocess.run(
-        [exiftool, "-time:all", "-G1", "-a", "-s", str(chemin)],
-        capture_output=True,
-        text=True,
+    try:
+        sortie = subprocess.run(
+            [
+                exiftool,
+                "-time:all",
+                "-G1",
+                "-a",
+                "-s",
+                str(chemin)
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30
         )
-    date=""
-    priorite=["DateTimeOriginal", "CreationDate","MediaCreateDate", "CreateDate"]
-    if sortie.returncode==0:
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"Erreur lors du lancement d'ExifTool : {e}")
+        return trouver_date_fichier_sans_meta(chemin)
+
+    priorite = [
+        "DateTimeOriginal",
+        "CreationDate",
+        "MediaCreateDate",
+        "CreateDate"
+    ]
+
+    if sortie.returncode == 0:
         for nom_date in priorite:
-            for line in sortie.stdout.strip().splitlines():
-                nom_tag=line.split()[1]
-                if nom_date==nom_tag:
-                    pre_date1=line
-                    pre_date2=pre_date1.split(": ", 1)[1]
-                    try:
-                        date=datetime.strptime(pre_date2,"%Y:%m:%d %H:%M:%S")
-                    except Exception as e:
-                        date=""
-                    break
-            if date:
-                break
-        if not date:
-            date=trouver_date_fichier_sans_meta(chemin)
+            for ligne in sortie.stdout.splitlines():
+                morceaux = ligne.split(None, 1)
+
+                if len(morceaux) != 2:
+                    continue
+
+                nom_tag = morceaux[0].split("]")[-1]
+
+                if nom_tag != nom_date:
+                    continue
+
+                valeur_date = morceaux[1].strip()
+
+                try:
+                    return datetime.strptime(
+                        valeur_date,
+                        "%Y:%m:%d %H:%M:%S"
+                    )
+                except ValueError:
+                    continue
+
+        print(
+            f"Aucune date exploitable trouvée pour {chemin.name}. "
+            "Utilisation de la date de modification."
+        )
     else:
-        print("souci pour trouver la date de la vidéo {chemin.name}, l'extraction des metadonnées a eu un soucis")
-    return date
+        print(
+            f"ExifTool n'a pas pu lire les métadonnées de "
+            f"{chemin.name} : {sortie.stderr.strip()}"
+        )
+
+    return trouver_date_fichier_sans_meta(chemin)
+
 
 def trouver_date_media(chemin):
     nature_fichier=type_media(chemin)
